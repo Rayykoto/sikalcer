@@ -6,16 +6,21 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
-export async function GET(request: Request): Promise<Response> {
-  const url = new URL(request.url);
-  const id = (url.searchParams.get("id") || "").replace(/[^a-z0-9]/gi, "");
+export default async function handler(req: any, res: any) {
+  const rawId = Array.isArray(req.query?.id) ? req.query.id[0] : req.query?.id;
+  const id = String(rawId || "").replace(/[^a-z0-9]/gi, "");
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 
+  const host = req.headers?.["x-forwarded-host"] || req.headers?.host || "localhost";
+  const proto = req.headers?.["x-forwarded-proto"] || "https";
+  const origin = `${proto}://${host}`;
+  const shareUrl = `${origin}/s/${id}`;
+
   let title = "Project Running Map — Aktivitas Lari & Sepeda";
   let description = "Lihat perjalanan avatar interaktif di peta 3D!";
-  let imageUrl = "";
+  let image = "";
 
   if (id && supabaseUrl && supabaseKey) {
     try {
@@ -53,66 +58,51 @@ export async function GET(request: Request): Promise<Response> {
 
           title = `${item.title} (${stats.distanceKm} km)`;
           description = `${item.mood_tag ? `"${item.mood_tag}" • ` : ""}${stats.distanceKm} km • ${metric} • Waktu ${stats.durationFormatted}`;
-          imageUrl = item.image_url;
+          image = item.image_url;
         }
       }
     } catch {
-      // Gunakan fallback meta default jika gagal fetch
+      // Gunakan fallback meta default jika gagal fetch dari Supabase
     }
   }
 
-  const sharePageUrl = `${url.origin}/s/${id}`;
-  const isJpeg = imageUrl.toLowerCase().endsWith(".jpg") || imageUrl.toLowerCase().endsWith(".jpeg");
-  const mimeType = isJpeg ? "image/jpeg" : "image/png";
+  const targetAppUrl = `/?s=${encodeURIComponent(id)}`;
 
-  const metaTags = `
+  const html = `<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Primary Meta Tags -->
     <title>${escapeHtml(title)}</title>
+    <meta name="title" content="${escapeHtml(title)}" />
     <meta name="description" content="${escapeHtml(description)}" />
+
+    <!-- Open Graph / Facebook / WhatsApp -->
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Project Running Map" />
-    <meta property="og:url" content="${escapeHtml(sharePageUrl)}" />
+    <meta property="og:url" content="${escapeHtml(shareUrl)}" />
     <meta property="og:title" content="${escapeHtml(title)}" />
     <meta property="og:description" content="${escapeHtml(description)}" />
-    ${
-      imageUrl
-        ? `<meta property="og:image" content="${escapeHtml(imageUrl)}" />
-    <meta property="og:image:secure_url" content="${escapeHtml(imageUrl)}" />
-    <meta property="og:image:type" content="${mimeType}" />
-    <meta property="og:image:width" content="660" />
-    <meta property="og:image:height" content="660" />`
-        : ""
-    }
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="${escapeHtml(title)}" />
-    <meta name="twitter:description" content="${escapeHtml(description)}" />
-    ${imageUrl ? `<meta name="twitter:image" content="${escapeHtml(imageUrl)}" />` : ""}
-  `;
+    ${image ? `<meta property="og:image" content="${escapeHtml(image)}" />` : ""}
 
-  // Suntikkan meta tags ke index.html agar URL tetap /s/:id tanpa redirect
-  try {
-    const indexRes = await fetch(`${url.origin}/index.html`);
-    if (indexRes.ok) {
-      let indexHtml = await indexRes.text();
-      indexHtml = indexHtml.replace(/<title>[\s\S]*?<\/title>/i, "");
-      indexHtml = indexHtml.replace("</head>", `${metaTags}\n  </head>`);
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="${escapeHtml(shareUrl)}" />
+    <meta property="twitter:title" content="${escapeHtml(title)}" />
+    <meta property="twitter:description" content="${escapeHtml(description)}" />
+    ${image ? `<meta property="twitter:image" content="${escapeHtml(image)}" />` : ""}
 
-      return new Response(indexHtml, {
-        status: 200,
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
-        },
-      });
-    }
-  } catch {
-    // Lanjut ke fallback HTML di bawah
-  }
+    <script>
+      window.location.replace(${JSON.stringify(targetAppUrl)});
+    </script>
+  </head>
+  <body>
+    <p>Membuka rute interaktif...</p>
+  </body>
+</html>`;
 
-  return new Response(
-    `<!doctype html><html lang="id"><head><meta charset="utf-8" />${metaTags}<script>window.location.replace(${JSON.stringify(`/?s=${encodeURIComponent(id)}`)});</script></head><body></body></html>`,
-    {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    }
-  );
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+  res.status(200).send(html);
 }

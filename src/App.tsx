@@ -37,7 +37,7 @@ const AVATAR_STORAGE_KEY = "prm_avatar_config_v1";
 
 // Rute contoh ±5.3 km (GBK -> Sudirman -> Dukuh Atas -> kembali ke GBK)
 const SAMPLE_GPX = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="ProjectRunningMap">
+<gpx version="1.1" creator="Sikalcer">
   <trk>
     <name>Sudirman Loop 5K Pagi</name>
     <type>running</type>
