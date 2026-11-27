@@ -1,5 +1,3 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")
@@ -8,8 +6,10 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const id = String(req.query.id || "").replace(/[^a-z0-9]/gi, "");
+export async function GET(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const id = (url.searchParams.get("id") || "").replace(/[^a-z0-9]/gi, "");
+
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 
@@ -28,55 +28,59 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           },
         }
       );
-      const rows = (await response.json()) as Array<{
-        title: string;
-        mood_tag: string;
-        activity_type: string;
-        image_url: string;
-        activity_data: {
-          distanceKm: number;
-          paceFormatted: string;
-          speedFormatted: string;
-          durationFormatted: string;
-        };
-      }>;
 
-      const item = rows[0];
-      if (item) {
-        const stats = item.activity_data;
-        const metric =
-          item.activity_type === "run"
-            ? `Pace ${stats.paceFormatted}/km`
-            : `Speed ${stats.speedFormatted} km/j`;
+      if (response.ok) {
+        const rows = (await response.json()) as Array<{
+          title: string;
+          mood_tag: string;
+          activity_type: string;
+          image_url: string;
+          activity_data: {
+            distanceKm: number;
+            paceFormatted: string;
+            speedFormatted: string;
+            durationFormatted: string;
+          };
+        }>;
 
-        title = `${item.title} (${stats.distanceKm} km)`;
-        description = `${item.mood_tag ? `"${item.mood_tag}" • ` : ""}${stats.distanceKm} km • ${metric} • Waktu ${stats.durationFormatted}`;
-        imageUrl = item.image_url;
+        const item = rows[0];
+        if (item) {
+          const stats = item.activity_data;
+          const metric =
+            item.activity_type === "run"
+              ? `Pace ${stats.paceFormatted}/km`
+              : `Speed ${stats.speedFormatted} km/j`;
+
+          title = `${item.title} (${stats.distanceKm} km)`;
+          description = `${item.mood_tag ? `"${item.mood_tag}" • ` : ""}${stats.distanceKm} km • ${metric} • Waktu ${stats.durationFormatted}`;
+          imageUrl = item.image_url;
+        }
       }
     } catch {
-      // Gunakan fallback meta default jika gagal fetch
+      // Gunakan fallback meta default jika gagal mengambil data
     }
   }
 
+  const sharePageUrl = `${url.origin}/s/${id}`;
   const targetAppUrl = `/?s=${encodeURIComponent(id)}`;
 
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.status(200).send(`<!doctype html>
+  const html = `<!doctype html>
 <html lang="id">
   <head>
     <meta charset="utf-8" />
     <title>${escapeHtml(title)}</title>
     <meta name="description" content="${escapeHtml(description)}" />
 
-    <!-- Open Graph / WhatsApp / Facebook / Discord -->
+    <!-- Open Graph (WhatsApp, Facebook, LinkedIn, Discord, Telegram) -->
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="${escapeHtml(sharePageUrl)}" />
     <meta property="og:title" content="${escapeHtml(title)}" />
     <meta property="og:description" content="${escapeHtml(description)}" />
     ${imageUrl ? `<meta property="og:image" content="${escapeHtml(imageUrl)}" />` : ""}
     <meta property="og:image:width" content="880" />
     <meta property="og:image:height" content="880" />
 
-    <!-- Twitter / X Large Card -->
+    <!-- Twitter / X Large Preview Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtml(title)}" />
     <meta name="twitter:description" content="${escapeHtml(description)}" />
@@ -89,5 +93,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   <body>
     <p>Membuka rute interaktif...</p>
   </body>
-</html>`);
+</html>`;
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+    },
+  });
 }
