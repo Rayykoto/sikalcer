@@ -1,12 +1,20 @@
 export type ActivityType = "run" | "ride";
 
-export type CardTheme = "light" | "dark" | "mint";
+export type CardTheme = "3d-city" | "satellite" | "dark";
 
 export interface TrackPoint {
   lat: number;
   lon: number;
   ele?: number;
   time?: number;
+  cumulativeKm: number;
+}
+
+export interface MilestoneMarker {
+  km: number;
+  lat: number;
+  lon: number;
+  label: string;
 }
 
 export interface RouteGeoJSON {
@@ -29,9 +37,10 @@ export interface ActivityData {
   distanceKm: number;
   durationSeconds: number;
   elevationGain: number;
-  paceFormatted: string; // contoh: "5:30" (/km)
-  speedFormatted: string; // contoh: "24.5" (km/h)
-  durationFormatted: string; // contoh: "45m 12s" atau "1j 20m"
-  bounds: [[number, number], [number, number]]; // [[minLon, minLat], [maxLon, maxLat]]
+  paceFormatted: string;
+  speedFormatted: string;
+  durationFormatted: string;
+  bounds: [[number, number], [number, number]];
+  points: TrackPoint[];
   geoJson: RouteGeoJSON;
 }
