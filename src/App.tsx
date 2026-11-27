@@ -117,10 +117,11 @@ export function App() {
     }
   }, [avatarConfig]);
 
-  // Deteksi parameter ?s=<id> saat halaman dibuka dari link yang dibagikan
+  // Deteksi /s/<id> atau ?s=<id> saat halaman dibuka dari link yang dibagikan
   useEffect(() => {
+    const pathMatch = window.location.pathname.match(/^\/s\/([a-z0-9]+)/i);
     const params = new URLSearchParams(window.location.search);
-    const shareId = params.get("s");
+    const shareId = pathMatch?.[1] || params.get("s");
     if (!shareId) return;
 
     setIsViewerMode(true);
@@ -288,12 +289,12 @@ export function App() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-sm font-bold text-white">
               RM
             </div>
-            <span className="font-bold tracking-tight">
+            {/* <span className="font-bold tracking-tight">
               Project Running Map
             </span>
             <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold text-orange-700">
               V3 Active 3D
-            </span>
+            </span> */}
           </div>
 
           <div className="flex items-center gap-2">

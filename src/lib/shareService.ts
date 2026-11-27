@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { toBlob } from "html-to-image";
+import { toJpeg } from "html-to-image";
 import type {
   ActivityData,
   ActivityType,
@@ -92,22 +92,27 @@ export async function createShareableLink(params: {
 
   const id = generateShortId();
 
-  // 1. Render kartu menjadi PNG Blob
-  const blob = await toBlob(params.cardElement, {
-    pixelRatio: 2,
+  // 1. Render kartu menjadi JPEG ringan (< 200 KB) agar terbaca crawler WhatsApp
+  const dataUrl = await toJpeg(params.cardElement, {
+    quality: 0.85,
+    pixelRatio: 1.5,
     cacheBust: true,
+    backgroundColor: "#ffffff",
   });
+
+  const imgRes = await fetch(dataUrl);
+  const blob = await imgRes.blob();
 
   if (!blob || blob.size === 0) {
     throw new Error("Gagal memotret kartu preview.");
   }
 
-  // 2. Upload gambar meta preview ke Supabase Storage (upsert: false agar lolos policy INSERT)
-  const filePath = `${id}.png`;
+  // 2. Upload gambar meta preview ke Supabase Storage
+  const filePath = `${id}.jpg`;
   const { error: uploadError } = await supabase.storage
     .from("share-cards")
     .upload(filePath, blob, {
-      contentType: "image/png",
+      contentType: "image/jpeg",
       upsert: false,
     });
 
