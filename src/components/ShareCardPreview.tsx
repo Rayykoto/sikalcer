@@ -1,7 +1,9 @@
 import { forwardRef } from "react";
 import { Bike, Footprints, Mountain } from "lucide-react";
 import { RouteMap } from "@/components/RouteMap";
+import { AvatarPreview } from "@/components/AvatarPreview";
 import type { ActivityData, ActivityType, CardTheme } from "@/types/activity";
+import type { AvatarConfig } from "@/types/avatar";
 
 export type CardAspectRatio = "square" | "story";
 
@@ -12,6 +14,8 @@ interface ShareCardPreviewProps {
   moodTag: string;
   theme: CardTheme;
   aspectRatio: CardAspectRatio;
+  avatarConfig: AvatarConfig;
+  showAvatar: boolean;
 }
 
 const CARD_STYLES: Record<
@@ -22,6 +26,8 @@ const CARD_STYLES: Record<
     pill: string;
     divider: string;
     mapBorder: string;
+    bubble: string;
+    avatarRing: string;
   }
 > = {
   light: {
@@ -30,6 +36,8 @@ const CARD_STYLES: Record<
     pill: "bg-orange-100 text-orange-700",
     divider: "border-zinc-100",
     mapBorder: "border-zinc-200/80",
+    bubble: "bg-white/95 text-zinc-900 border-zinc-200 shadow-md",
+    avatarRing: "bg-orange-50 border-white shadow-lg",
   },
   dark: {
     wrapper: "bg-zinc-950 text-zinc-50 border-zinc-800",
@@ -37,6 +45,8 @@ const CARD_STYLES: Record<
     pill: "bg-lime-400/15 text-lime-300",
     divider: "border-zinc-800/80",
     mapBorder: "border-zinc-800",
+    bubble: "bg-zinc-900/95 text-zinc-100 border-zinc-700 shadow-md",
+    avatarRing: "bg-zinc-800 border-zinc-950 shadow-lg",
   },
   mint: {
     wrapper: "bg-emerald-50/90 text-emerald-950 border-emerald-200",
@@ -44,6 +54,8 @@ const CARD_STYLES: Record<
     pill: "bg-emerald-600 text-white",
     divider: "border-emerald-200/70",
     mapBorder: "border-emerald-200",
+    bubble: "bg-white/95 text-emerald-950 border-emerald-200 shadow-md",
+    avatarRing: "bg-emerald-100 border-white shadow-lg",
   },
 };
 
@@ -51,7 +63,16 @@ export const ShareCardPreview = forwardRef<
   HTMLDivElement,
   ShareCardPreviewProps
 >(function ShareCardPreview(
-  { activity, overrideType, customTitle, moodTag, theme, aspectRatio },
+  {
+    activity,
+    overrideType,
+    customTitle,
+    moodTag,
+    theme,
+    aspectRatio,
+    avatarConfig,
+    showAvatar,
+  },
   ref
 ) {
   const styles = CARD_STYLES[theme];
@@ -86,7 +107,8 @@ export const ShareCardPreview = forwardRef<
           </span>
         </div>
 
-        {moodTag.trim() && (
+        {/* Jika avatar disembunyikan, moodTag tampil sebagai pill di header */}
+        {!showAvatar && moodTag.trim() && (
           <span
             className={`max-w-[160px] truncate rounded-full px-2.5 py-1 text-xs font-medium ${styles.pill}`}
           >
@@ -95,7 +117,7 @@ export const ShareCardPreview = forwardRef<
         )}
       </div>
 
-      {/* Area Peta Utama */}
+      {/* Area Peta Utama + Avatar Overlay */}
       <div
         className={`relative my-3.5 flex-1 overflow-hidden rounded-2xl border ${styles.mapBorder}`}
       >
@@ -105,11 +127,29 @@ export const ShareCardPreview = forwardRef<
           theme={theme}
         />
 
-        {/* Badge Elevasi di pojok peta */}
+        {/* Badge Elevasi di pojok kiri bawah peta */}
         {activity.elevationGain > 0 && (
           <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1 rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
             <Mountain className="h-3 w-3" />
             <span>+{activity.elevationGain} m</span>
+          </div>
+        )}
+
+        {/* Karakter Avatar + Speech Bubble di pojok kanan bawah peta */}
+        {showAvatar && (
+          <div className="absolute right-2.5 bottom-2.5 flex flex-col items-end gap-1.5">
+            {moodTag.trim() && (
+              <div
+                className={`max-w-[190px] rounded-2xl rounded-br-xs border px-3 py-1.5 text-xs font-semibold leading-snug ${styles.bubble}`}
+              >
+                {moodTag}
+              </div>
+            )}
+            <div
+              className={`h-20 w-20 overflow-hidden rounded-full border-[3px] ${styles.avatarRing}`}
+            >
+              <AvatarPreview config={avatarConfig} className="h-full w-full" />
+            </div>
           </div>
         )}
       </div>

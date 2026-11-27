@@ -1,23 +1,30 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { toPng } from "html-to-image";
 import {
   Bike,
   Download,
   Footprints,
+  MapPin,
   Sparkles,
   Upload,
+  UserRound,
 } from "lucide-react";
-import "maplibre-gl/dist/maplibre-gl.css";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AvatarCustomizer } from "@/components/AvatarCustomizer";
 import { ShareCardPreview } from "@/components/ShareCardPreview";
 import type { CardAspectRatio } from "@/components/ShareCardPreview";
 import { parseGpxFile } from "@/lib/gpxParser";
 import type { ActivityData, ActivityType, CardTheme } from "@/types/activity";
+import { DEFAULT_AVATAR_CONFIG } from "@/types/avatar";
+import type { AvatarConfig } from "@/types/avatar";
+
+const AVATAR_STORAGE_KEY = "prm_avatar_config_v1";
 
 const SAMPLE_GPX = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="ProjectRunningMap">
@@ -43,6 +50,16 @@ const MOOD_PRESETS = [
   "Keringetan dikit",
 ];
 
+function loadSavedAvatar(): AvatarConfig {
+  try {
+    const raw = localStorage.getItem(AVATAR_STORAGE_KEY);
+    if (!raw) return DEFAULT_AVATAR_CONFIG;
+    return { ...DEFAULT_AVATAR_CONFIG, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_AVATAR_CONFIG;
+  }
+}
+
 export function App() {
   const [activity, setActivity] = useState<ActivityData>(() =>
     parseGpxFile(SAMPLE_GPX, "run")
@@ -52,11 +69,21 @@ export function App() {
   const [moodTag, setMoodTag] = useState<string>("Lari cari sarapan");
   const [theme, setTheme] = useState<CardTheme>("light");
   const [aspectRatio, setAspectRatio] = useState<CardAspectRatio>("square");
+  const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(loadSavedAvatar);
+  const [showAvatar, setShowAvatar] = useState<boolean>(true);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(AVATAR_STORAGE_KEY, JSON.stringify(avatarConfig));
+    } catch {
+      // Abaikan jika storage penuh/diblokir
+    }
+  }, [avatarConfig]);
 
   const processFile = async (file: File) => {
     setErrorMsg(null);
@@ -110,9 +137,9 @@ export function App() {
         cacheBust: true,
       });
       const link = document.createElement("a");
-      link.download = `${customTitle
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-") || "activity"}-card.png`;
+      link.download = `${
+        customTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "activity"
+      }-card.png`;
       link.href = dataUrl;
       link.click();
     } catch {
@@ -128,14 +155,14 @@ export function App() {
       <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5 sm:px-6">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-white font-bold text-sm">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-sm font-bold text-white">
               RM
             </div>
             <span className="font-bold tracking-tight">
               Project Running Map
             </span>
-            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
-              V1 Standard
+            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold text-orange-700">
+              V2 Avatar
             </span>
           </div>
 
@@ -152,170 +179,217 @@ export function App() {
 
       {/* Main Content */}
       <main className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:grid-cols-12">
-        {/* Panel Kiri: Upload & Kontrol */}
-        <div className="space-y-6 lg:col-span-5">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">1. Upload Rute (.GPX)</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50/70 px-4 py-6 text-center transition hover:border-zinc-400 hover:bg-zinc-100/70"
-              >
-                <Upload className="mb-2 h-6 w-6 text-zinc-500" />
-                <p className="text-sm font-medium">
-                  Klik atau seret file <span className="font-bold">.gpx</span> ke sini
-                </p>
-                <p className="mt-1 text-xs text-zinc-500">
-                  Ekspor dari Strava, Garmin Connect, atau Apple Health
-                </p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".gpx"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-              </div>
+        {/* Panel Kiri: Tabs Rute & Kustom Avatar */}
+        <div className="lg:col-span-5">
+          <Tabs defaultValue="route" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="route">
+                <MapPin className="mr-1.5 h-4 w-4" />
+                Rute & Kartu
+              </TabsTrigger>
+              <TabsTrigger value="avatar">
+                <UserRound className="mr-1.5 h-4 w-4" />
+                Kustom Avatar
+              </TabsTrigger>
+            </TabsList>
 
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-500">
-                  Belum punya file GPX?
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={handleLoadSample}
-                >
-                  <Sparkles className="mr-1 h-3.5 w-3.5" />
-                  Muat Rute Contoh
-                </Button>
-              </div>
-
-              {errorMsg && (
-                <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
-                  {errorMsg}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">2. Detail & Gaya Kartu</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Jenis Olahraga */}
-              <div className="space-y-1.5">
-                <Label className="text-xs">Jenis Aktivitas</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    variant={activityType === "run" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setActivityType("run")}
+            {/* Tab 1: Upload & Gaya Kartu */}
+            <TabsContent value="route" className="mt-4 space-y-5">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">1. Upload Rute (.GPX)</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50/70 px-4 py-5 text-center transition hover:border-zinc-400 hover:bg-zinc-100/70"
                   >
-                    <Footprints className="mr-1.5 h-4 w-4" />
-                    Lari (Pace)
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={activityType === "ride" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setActivityType("ride")}
-                  >
-                    <Bike className="mr-1.5 h-4 w-4" />
-                    Sepeda (Speed)
-                  </Button>
-                </div>
-              </div>
+                    <Upload className="mb-2 h-6 w-6 text-zinc-500" />
+                    <p className="text-sm font-medium">
+                      Klik atau seret file <span className="font-bold">.gpx</span> ke sini
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Ekspor dari Strava, Garmin Connect, atau Apple Health
+                    </p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".gpx"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                  </div>
 
-              {/* Judul Aktivitas */}
-              <div className="space-y-1.5">
-                <Label htmlFor="activity-title" className="text-xs">
-                  Judul Aktivitas
-                </Label>
-                <Input
-                  id="activity-title"
-                  value={customTitle}
-                  onChange={(e) => setCustomTitle(e.target.value)}
-                  placeholder="Contoh: Lari Pagi Sudirman"
-                />
-              </div>
-
-              {/* Stiker Mood */}
-              <div className="space-y-1.5">
-                <Label htmlFor="mood-tag" className="text-xs">
-                  Label Mood / Konteks
-                </Label>
-                <Input
-                  id="mood-tag"
-                  value={moodTag}
-                  onChange={(e) => setMoodTag(e.target.value)}
-                  placeholder="Kosongkan jika tidak perlu"
-                />
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {MOOD_PRESETS.map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setMoodTag(preset)}
-                      className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-0.5 text-[11px] text-zinc-600 transition hover:bg-zinc-200/70"
-                    >
-                      {preset}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Tema Warna */}
-              <div className="space-y-1.5">
-                <Label className="text-xs">Tema Kartu</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["light", "dark", "mint"] as CardTheme[]).map((t) => (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-zinc-500">
+                      Belum punya file GPX?
+                    </span>
                     <Button
-                      key={t}
                       type="button"
-                      variant={theme === t ? "default" : "outline"}
+                      variant="ghost"
                       size="sm"
-                      className="capitalize"
-                      onClick={() => setTheme(t)}
+                      className="h-7 text-xs"
+                      onClick={handleLoadSample}
                     >
-                      {t}
+                      <Sparkles className="mr-1 h-3.5 w-3.5" />
+                      Muat Rute Contoh
                     </Button>
-                  ))}
-                </div>
-              </div>
+                  </div>
 
-              {/* Rasio Gambar */}
-              <div className="space-y-1.5">
-                <Label className="text-xs">Ukuran Export</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    variant={aspectRatio === "square" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setAspectRatio("square")}
-                  >
-                    1:1 (Feed / Post)
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={aspectRatio === "story" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setAspectRatio("story")}
-                  >
-                    9:16 (IG Story / TikTok)
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                  {errorMsg && (
+                    <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+                      {errorMsg}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">2. Detail & Gaya Kartu</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Jenis Olahraga */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Jenis Aktivitas</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        type="button"
+                        variant={activityType === "run" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setActivityType("run")}
+                      >
+                        <Footprints className="mr-1.5 h-4 w-4" />
+                        Lari (Pace)
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={activityType === "ride" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setActivityType("ride")}
+                      >
+                        <Bike className="mr-1.5 h-4 w-4" />
+                        Sepeda (Speed)
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Judul Aktivitas */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="activity-title" className="text-xs">
+                      Judul Aktivitas
+                    </Label>
+                    <Input
+                      id="activity-title"
+                      value={customTitle}
+                      onChange={(e) => setCustomTitle(e.target.value)}
+                      placeholder="Contoh: Lari Pagi Sudirman"
+                    />
+                  </div>
+
+                  {/* Stiker Mood */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="mood-tag" className="text-xs">
+                      Celoteh Avatar / Mood
+                    </Label>
+                    <Input
+                      id="mood-tag"
+                      value={moodTag}
+                      onChange={(e) => setMoodTag(e.target.value)}
+                      placeholder="Kosongkan jika tidak perlu"
+                    />
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {MOOD_PRESETS.map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setMoodTag(preset)}
+                          className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-0.5 text-[11px] text-zinc-600 transition hover:bg-zinc-200/70"
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Tema Warna */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Tema Kartu</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(["light", "dark", "mint"] as CardTheme[]).map((t) => (
+                        <Button
+                          key={t}
+                          type="button"
+                          variant={theme === t ? "default" : "outline"}
+                          size="sm"
+                          className="capitalize"
+                          onClick={() => setTheme(t)}
+                        >
+                          {t}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Rasio Gambar */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Ukuran Export</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        type="button"
+                        variant={aspectRatio === "square" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setAspectRatio("square")}
+                      >
+                        1:1 (Feed / Post)
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={aspectRatio === "story" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setAspectRatio("story")}
+                      >
+                        9:16 (IG Story / TikTok)
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Toggle Tampilkan Avatar */}
+                  <div className="flex items-center justify-between pt-1">
+                    <Label className="text-xs">Tampilkan Avatar di Kartu</Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={showAvatar ? "default" : "outline"}
+                      className="h-7 text-xs"
+                      onClick={() => setShowAvatar((prev) => !prev)}
+                    >
+                      {showAvatar ? "Aktif" : "Sembunyikan"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Tab 2: Kustom Avatar */}
+            <TabsContent value="avatar" className="mt-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    Dandani Karaktermu
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <AvatarCustomizer
+                    config={avatarConfig}
+                    onChange={setAvatarConfig}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Panel Kanan: Live Preview */}
@@ -329,6 +403,8 @@ export function App() {
               moodTag={moodTag}
               theme={theme}
               aspectRatio={aspectRatio}
+              avatarConfig={avatarConfig}
+              showAvatar={showAvatar}
             />
             <p className="mt-3 text-xs text-zinc-500">
               Preview langsung — klik tombol <strong>Download PNG</strong> di pojok kanan atas untuk menyimpan.
