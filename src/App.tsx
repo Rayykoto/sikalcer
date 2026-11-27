@@ -6,6 +6,10 @@ import {
   Download,
   Footprints,
   MapPin,
+  Navigation,
+  Pause,
+  Play,
+  RotateCcw,
   Sparkles,
   Upload,
   UserRound,
@@ -23,22 +27,27 @@ import { parseGpxFile } from "@/lib/gpxParser";
 import type { ActivityData, ActivityType, CardTheme } from "@/types/activity";
 import { DEFAULT_AVATAR_CONFIG } from "@/types/avatar";
 import type { AvatarConfig } from "@/types/avatar";
+import { downloadSampleGpx } from "./lib/sampleGpx";
 
 const AVATAR_STORAGE_KEY = "prm_avatar_config_v1";
 
+// Rute contoh ±5.3 km (GBK -> Sudirman -> Dukuh Atas -> kembali ke GBK)
 const SAMPLE_GPX = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="ProjectRunningMap">
   <trk>
-    <name>Loop Pagi GBK Senayan</name>
+    <name>Sudirman Loop 5K Pagi</name>
     <type>running</type>
     <trkseg>
-      <trkpt lat="-6.2185" lon="106.8018"><ele>12</ele><time>2026-11-27T06:00:00Z</time></trkpt>
-      <trkpt lat="-6.2162" lon="106.8035"><ele>14</ele><time>2026-11-27T06:04:10Z</time></trkpt>
-      <trkpt lat="-6.2155" lon="106.8062"><ele>15</ele><time>2026-11-27T06:08:30Z</time></trkpt>
-      <trkpt lat="-6.2182" lon="106.8075"><ele>13</ele><time>2026-11-27T06:13:00Z</time></trkpt>
-      <trkpt lat="-6.2212" lon="106.8058"><ele>11</ele><time>2026-11-27T06:17:45Z</time></trkpt>
-      <trkpt lat="-6.2215" lon="106.8025"><ele>12</ele><time>2026-11-27T06:22:15Z</time></trkpt>
-      <trkpt lat="-6.2186" lon="106.8018"><ele>12</ele><time>2026-11-27T06:26:40Z</time></trkpt>
+      <trkpt lat="-6.2245" lon="106.8050"><ele>12</ele><time>2026-11-27T06:00:00Z</time></trkpt>
+      <trkpt lat="-6.2202" lon="106.8092"><ele>14</ele><time>2026-11-27T06:03:40Z</time></trkpt>
+      <trkpt lat="-6.2150" lon="106.8145"><ele>15</ele><time>2026-11-27T06:08:10Z</time></trkpt>
+      <trkpt lat="-6.2095" lon="106.8195"><ele>16</ele><time>2026-11-27T06:13:00Z</time></trkpt>
+      <trkpt lat="-6.2035" lon="106.8225"><ele>14</ele><time>2026-11-27T06:17:30Z</time></trkpt>
+      <trkpt lat="-6.2038" lon="106.8235"><ele>14</ele><time>2026-11-27T06:18:20Z</time></trkpt>
+      <trkpt lat="-6.2098" lon="106.8204"><ele>16</ele><time>2026-11-27T06:22:50Z</time></trkpt>
+      <trkpt lat="-6.2155" lon="106.8152"><ele>15</ele><time>2026-11-27T06:27:30Z</time></trkpt>
+      <trkpt lat="-6.2208" lon="106.8098"><ele>13</ele><time>2026-11-27T06:31:50Z</time></trkpt>
+      <trkpt lat="-6.2246" lon="106.8055"><ele>12</ele><time>2026-11-27T06:35:10Z</time></trkpt>
     </trkseg>
   </trk>
 </gpx>`;
@@ -48,6 +57,12 @@ const MOOD_PRESETS = [
   "Pace keong santai",
   "Gowes anti-stres",
   "Keringetan dikit",
+];
+
+const THEME_LABELS: Array<{ id: CardTheme; label: string }> = [
+  { id: "3d-city", label: "3D Kota" },
+  { id: "satellite", label: "Satelit Real" },
+  { id: "dark", label: "Dark 3D" },
 ];
 
 function loadSavedAvatar(): AvatarConfig {
@@ -65,12 +80,20 @@ export function App() {
     parseGpxFile(SAMPLE_GPX, "run")
   );
   const [activityType, setActivityType] = useState<ActivityType>("run");
-  const [customTitle, setCustomTitle] = useState<string>("Loop Pagi GBK Senayan");
+  const [customTitle, setCustomTitle] = useState<string>("Sudirman Loop 5K Pagi");
   const [moodTag, setMoodTag] = useState<string>("Lari cari sarapan");
-  const [theme, setTheme] = useState<CardTheme>("light");
+  const [theme, setTheme] = useState<CardTheme>("3d-city");
   const [aspectRatio, setAspectRatio] = useState<CardAspectRatio>("square");
   const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(loadSavedAvatar);
   const [showAvatar, setShowAvatar] = useState<boolean>(true);
+
+  // State untuk pergerakan interaktif avatar di peta
+  const [currentKm, setCurrentKm] = useState<number>(5.0);
+  const [milestoneIntervalKm, setMilestoneIntervalKm] = useState<number>(5);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(3);
+  const [followAvatar, setFollowAvatar] = useState<boolean>(false);
+
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -81,9 +104,43 @@ export function App() {
     try {
       localStorage.setItem(AVATAR_STORAGE_KEY, JSON.stringify(avatarConfig));
     } catch {
-      // Abaikan jika storage penuh/diblokir
+      // Abaikan jika storage penuh
     }
   }, [avatarConfig]);
+
+  // Loop animasi pergerakan avatar sepanjang rute
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    let lastTimestamp = performance.now();
+    let frameId = 0;
+
+    const tick = (now: number) => {
+      const deltaSeconds = (now - lastTimestamp) / 1000;
+      lastTimestamp = now;
+
+      setCurrentKm((prev) => {
+        const next = prev + deltaSeconds * 0.35 * playbackSpeed;
+        if (next >= activity.distanceKm) {
+          setIsPlaying(false);
+          return activity.distanceKm;
+        }
+        return next;
+      });
+
+      frameId = requestAnimationFrame(tick);
+    };
+
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, [isPlaying, playbackSpeed, activity.distanceKm]);
+
+  const handleTogglePlay = () => {
+    if (currentKm >= activity.distanceKm) {
+      setCurrentKm(0);
+    }
+    setIsPlaying((prev) => !prev);
+  };
 
   const processFile = async (file: File) => {
     setErrorMsg(null);
@@ -98,6 +155,8 @@ export function App() {
       setActivity(parsed);
       setActivityType(parsed.type);
       setCustomTitle(parsed.title);
+      setCurrentKm(0);
+      setIsPlaying(true);
     } catch (err) {
       setErrorMsg(
         err instanceof Error ? err.message : "Gagal membaca file GPX."
@@ -126,10 +185,13 @@ export function App() {
     setActivity(parsed);
     setActivityType("run");
     setCustomTitle(parsed.title);
+    setCurrentKm(0);
+    setIsPlaying(true);
   };
 
   const handleExportPng = async () => {
     if (!cardRef.current) return;
+    setIsPlaying(false);
     setIsExporting(true);
     try {
       const dataUrl = await toPng(cardRef.current, {
@@ -162,7 +224,7 @@ export function App() {
               Project Running Map
             </span>
             <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold text-orange-700">
-              V2 Avatar
+              V3 Active 3D
             </span>
           </div>
 
@@ -185,7 +247,7 @@ export function App() {
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="route">
                 <MapPin className="mr-1.5 h-4 w-4" />
-                Rute & Kartu
+                Rute & Peta 3D
               </TabsTrigger>
               <TabsTrigger value="avatar">
                 <UserRound className="mr-1.5 h-4 w-4" />
@@ -224,7 +286,7 @@ export function App() {
 
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-zinc-500">
-                      Belum punya file GPX?
+                      Ingin tes rute 5K?
                     </span>
                     <Button
                       type="button"
@@ -234,7 +296,7 @@ export function App() {
                       onClick={handleLoadSample}
                     >
                       <Sparkles className="mr-1 h-3.5 w-3.5" />
-                      Muat Rute Contoh
+                      Putar Rute Contoh 5.3K
                     </Button>
                   </div>
 
@@ -248,7 +310,7 @@ export function App() {
 
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">2. Detail & Gaya Kartu</CardTitle>
+                  <CardTitle className="text-base">2. Detail & Gaya Peta 3D</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Jenis Olahraga */}
@@ -276,6 +338,47 @@ export function App() {
                     </div>
                   </div>
 
+                  {/* Tema Peta Realistis */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Tampilan Peta</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {THEME_LABELS.map((t) => (
+                        <Button
+                          key={t.id}
+                          type="button"
+                          variant={theme === t.id ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setTheme(t.id)}
+                        >
+                          {t.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Interval Milestone Gerakan Avatar */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">
+                      Selebrasi Avatar Setiap Kelipatan
+                    </Label>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {[1, 2, 5, 10].map((km) => (
+                        <Button
+                          key={km}
+                          type="button"
+                          variant={
+                            milestoneIntervalKm === km ? "default" : "outline"
+                          }
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={() => setMilestoneIntervalKm(km)}
+                        >
+                          {km} KM
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Judul Aktivitas */}
                   <div className="space-y-1.5">
                     <Label htmlFor="activity-title" className="text-xs">
@@ -292,7 +395,7 @@ export function App() {
                   {/* Stiker Mood */}
                   <div className="space-y-1.5">
                     <Label htmlFor="mood-tag" className="text-xs">
-                      Celoteh Avatar / Mood
+                      Label Mood / Konteks
                     </Label>
                     <Input
                       id="mood-tag"
@@ -310,25 +413,6 @@ export function App() {
                         >
                           {preset}
                         </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Tema Warna */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Tema Kartu</Label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(["light", "dark", "mint"] as CardTheme[]).map((t) => (
-                        <Button
-                          key={t}
-                          type="button"
-                          variant={theme === t ? "default" : "outline"}
-                          size="sm"
-                          className="capitalize"
-                          onClick={() => setTheme(t)}
-                        >
-                          {t}
-                        </Button>
                       ))}
                     </div>
                   </div>
@@ -356,9 +440,9 @@ export function App() {
                     </div>
                   </div>
 
-                  {/* Toggle Tampilkan Avatar */}
+                  {/* Toggle Avatar */}
                   <div className="flex items-center justify-between pt-1">
-                    <Label className="text-xs">Tampilkan Avatar di Kartu</Label>
+                    <Label className="text-xs">Avatar Aktif di Peta</Label>
                     <Button
                       type="button"
                       size="sm"
@@ -372,6 +456,31 @@ export function App() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {/* Tambahkan di bawah area drag-and-drop upload GPX: */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <span className="text-xs text-zinc-500">Unduh file GPX uji:</span>
+              <div className="flex gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => downloadSampleGpx("run")}
+                >
+                  Lari 7.6K (.gpx)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => downloadSampleGpx("ride")}
+                >
+                  Sepeda 12.3K (.gpx)
+                </Button>
+              </div>
+            </div>
 
             {/* Tab 2: Kustom Avatar */}
             <TabsContent value="avatar" className="mt-4">
@@ -392,9 +501,9 @@ export function App() {
           </Tabs>
         </div>
 
-        {/* Panel Kanan: Live Preview */}
+        {/* Panel Kanan: Live Preview + Route Player */}
         <div className="flex flex-col items-center justify-start lg:col-span-7">
-          <div className="sticky top-8 flex w-full flex-col items-center">
+          <div className="sticky top-6 flex w-full flex-col items-center">
             <ShareCardPreview
               ref={cardRef}
               activity={activity}
@@ -405,10 +514,102 @@ export function App() {
               aspectRatio={aspectRatio}
               avatarConfig={avatarConfig}
               showAvatar={showAvatar}
+              currentKm={currentKm}
+              milestoneIntervalKm={milestoneIntervalKm}
+              followAvatar={followAvatar}
+              isPlaying={isPlaying}
             />
-            <p className="mt-3 text-xs text-zinc-500">
-              Preview langsung — klik tombol <strong>Download PNG</strong> di pojok kanan atas untuk menyimpan.
-            </p>
+
+            {/* Bar Kontrol Gerakan Avatar di Peta */}
+            <div className="mt-4 w-full max-w-[440px] rounded-2xl border border-zinc-200 bg-white p-3.5 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleTogglePlay}
+                    className="h-8 px-3"
+                  >
+                    {isPlaying ? (
+                      <>
+                        <Pause className="mr-1.5 h-3.5 w-3.5" />
+                        Jeda
+                      </>
+                    ) : (
+                      <>
+                        <Play className="mr-1.5 h-3.5 w-3.5" />
+                        Gerakkan
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    title="Ulang dari 0 KM"
+                    onClick={() => {
+                      setIsPlaying(false);
+                      setCurrentKm(0);
+                    }}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+
+                {/* Kecepatan & Camera Follow */}
+                <div className="flex items-center gap-1.5">
+                  {[1, 3, 8].map((spd) => (
+                    <button
+                      key={spd}
+                      type="button"
+                      onClick={() => setPlaybackSpeed(spd)}
+                      className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${
+                        playbackSpeed === spd
+                          ? "bg-zinc-900 text-white"
+                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                      }`}
+                    >
+                      {spd}x
+                    </button>
+                  ))}
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={followAvatar ? "default" : "outline"}
+                    className="ml-1 h-7 px-2 text-[11px]"
+                    onClick={() => setFollowAvatar((prev) => !prev)}
+                  >
+                    <Navigation className="mr-1 h-3 w-3" />
+                    Ikuti
+                  </Button>
+                </div>
+              </div>
+
+              {/* Slider Jarak KM */}
+              <div className="mt-3 flex items-center gap-3">
+                <span className="w-14 text-xs font-semibold tabular-nums text-zinc-700">
+                  {currentKm.toFixed(1)} km
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={activity.distanceKm}
+                  step={0.05}
+                  value={currentKm}
+                  onChange={(e) => {
+                    setIsPlaying(false);
+                    setCurrentKm(parseFloat(e.target.value));
+                  }}
+                  className="h-1.5 flex-1 cursor-pointer accent-orange-500"
+                />
+                <span className="w-14 text-right text-xs tabular-nums text-zinc-500">
+                  {activity.distanceKm} km
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </main>

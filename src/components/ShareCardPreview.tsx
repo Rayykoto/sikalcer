@@ -1,7 +1,6 @@
 import { forwardRef } from "react";
 import { Bike, Footprints, Mountain } from "lucide-react";
 import { RouteMap } from "@/components/RouteMap";
-import { AvatarPreview } from "@/components/AvatarPreview";
 import type { ActivityData, ActivityType, CardTheme } from "@/types/activity";
 import type { AvatarConfig } from "@/types/avatar";
 
@@ -16,6 +15,10 @@ interface ShareCardPreviewProps {
   aspectRatio: CardAspectRatio;
   avatarConfig: AvatarConfig;
   showAvatar: boolean;
+  currentKm: number;
+  milestoneIntervalKm: number;
+  followAvatar: boolean;
+  isPlaying: boolean;
 }
 
 const CARD_STYLES: Record<
@@ -26,18 +29,21 @@ const CARD_STYLES: Record<
     pill: string;
     divider: string;
     mapBorder: string;
-    bubble: string;
-    avatarRing: string;
   }
 > = {
-  light: {
+  "3d-city": {
     wrapper: "bg-white text-zinc-900 border-zinc-200",
     subtext: "text-zinc-500",
     pill: "bg-orange-100 text-orange-700",
     divider: "border-zinc-100",
     mapBorder: "border-zinc-200/80",
-    bubble: "bg-white/95 text-zinc-900 border-zinc-200 shadow-md",
-    avatarRing: "bg-orange-50 border-white shadow-lg",
+  },
+  satellite: {
+    wrapper: "bg-slate-900 text-slate-50 border-slate-700",
+    subtext: "text-slate-400",
+    pill: "bg-sky-500/20 text-sky-300",
+    divider: "border-slate-800",
+    mapBorder: "border-slate-700",
   },
   dark: {
     wrapper: "bg-zinc-950 text-zinc-50 border-zinc-800",
@@ -45,17 +51,6 @@ const CARD_STYLES: Record<
     pill: "bg-lime-400/15 text-lime-300",
     divider: "border-zinc-800/80",
     mapBorder: "border-zinc-800",
-    bubble: "bg-zinc-900/95 text-zinc-100 border-zinc-700 shadow-md",
-    avatarRing: "bg-zinc-800 border-zinc-950 shadow-lg",
-  },
-  mint: {
-    wrapper: "bg-emerald-50/90 text-emerald-950 border-emerald-200",
-    subtext: "text-emerald-700/80",
-    pill: "bg-emerald-600 text-white",
-    divider: "border-emerald-200/70",
-    mapBorder: "border-emerald-200",
-    bubble: "bg-white/95 text-emerald-950 border-emerald-200 shadow-md",
-    avatarRing: "bg-emerald-100 border-white shadow-lg",
   },
 };
 
@@ -72,6 +67,10 @@ export const ShareCardPreview = forwardRef<
     aspectRatio,
     avatarConfig,
     showAvatar,
+    currentKm,
+    milestoneIntervalKm,
+    followAvatar,
+    isPlaying,
   },
   ref
 ) {
@@ -107,49 +106,45 @@ export const ShareCardPreview = forwardRef<
           </span>
         </div>
 
-        {/* Jika avatar disembunyikan, moodTag tampil sebagai pill di header */}
-        {!showAvatar && moodTag.trim() && (
+        {moodTag.trim() && (
           <span
-            className={`max-w-[160px] truncate rounded-full px-2.5 py-1 text-xs font-medium ${styles.pill}`}
+            className={`max-w-[175px] truncate rounded-full px-2.5 py-1 text-xs font-medium ${styles.pill}`}
           >
             {moodTag}
           </span>
         )}
       </div>
 
-      {/* Area Peta Utama + Avatar Overlay */}
+      {/* Area Peta 3D Realistis */}
       <div
         className={`relative my-3.5 flex-1 overflow-hidden rounded-2xl border ${styles.mapBorder}`}
       >
         <RouteMap
           geoJson={activity.geoJson}
+          points={activity.points}
           bounds={activity.bounds}
           theme={theme}
+          activityType={overrideType}
+          avatarConfig={avatarConfig}
+          showAvatarOnMap={showAvatar}
+          currentKm={currentKm}
+          milestoneIntervalKm={milestoneIntervalKm}
+          followAvatar={followAvatar}
+          isPlaying={isPlaying}
         />
 
-        {/* Badge Elevasi di pojok kiri bawah peta */}
+        {/* Badge Elevasi */}
         {activity.elevationGain > 0 && (
-          <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1 rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+          <div className="pointer-events-none absolute bottom-2.5 left-2.5 flex items-center gap-1 rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
             <Mountain className="h-3 w-3" />
             <span>+{activity.elevationGain} m</span>
           </div>
         )}
 
-        {/* Karakter Avatar + Speech Bubble di pojok kanan bawah peta */}
+        {/* Indikator Posisi KM Avatar */}
         {showAvatar && (
-          <div className="absolute right-2.5 bottom-2.5 flex flex-col items-end gap-1.5">
-            {moodTag.trim() && (
-              <div
-                className={`max-w-[190px] rounded-2xl rounded-br-xs border px-3 py-1.5 text-xs font-semibold leading-snug ${styles.bubble}`}
-              >
-                {moodTag}
-              </div>
-            )}
-            <div
-              className={`h-20 w-20 overflow-hidden rounded-full border-[3px] ${styles.avatarRing}`}
-            >
-              <AvatarPreview config={avatarConfig} className="h-full w-full" />
-            </div>
+          <div className="pointer-events-none absolute top-2.5 right-2.5 rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-white backdrop-blur-sm">
+            KM {currentKm.toFixed(1)} / {activity.distanceKm}
           </div>
         )}
       </div>
