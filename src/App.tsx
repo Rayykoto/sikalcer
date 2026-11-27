@@ -3,6 +3,8 @@ import type { ChangeEvent, DragEvent } from "react";
 import { toPng } from "html-to-image";
 import {
   Bike,
+  Check,
+  Copy,
   Download,
   Footprints,
   MapPin,
@@ -10,6 +12,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Share2,
   Sparkles,
   Upload,
   UserRound,
@@ -24,10 +27,11 @@ import { AvatarCustomizer } from "@/components/AvatarCustomizer";
 import { ShareCardPreview } from "@/components/ShareCardPreview";
 import type { CardAspectRatio } from "@/components/ShareCardPreview";
 import { parseGpxFile } from "@/lib/gpxParser";
+import { downloadSampleGpx } from "@/lib/sampleGpx";
+import { createShareableLink, fetchSharedActivity } from "@/lib/shareService";
 import type { ActivityData, ActivityType, CardTheme } from "@/types/activity";
 import { DEFAULT_AVATAR_CONFIG } from "@/types/avatar";
 import type { AvatarConfig } from "@/types/avatar";
-import { downloadSampleGpx } from "./lib/sampleGpx";
 
 const AVATAR_STORAGE_KEY = "prm_avatar_config_v1";
 
@@ -94,7 +98,12 @@ export function App() {
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(3);
   const [followAvatar, setFollowAvatar] = useState<boolean>(false);
 
+  // State untuk export PNG & Share Link
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [isViewerMode, setIsViewerMode] = useState<boolean>(false);
+  const [isSharing, setIsSharing] = useState<boolean>(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -107,6 +116,32 @@ export function App() {
       // Abaikan jika storage penuh
     }
   }, [avatarConfig]);
+
+  // Deteksi parameter ?s=<id> saat halaman dibuka dari link yang dibagikan
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shareId = params.get("s");
+    if (!shareId) return;
+
+    setIsViewerMode(true);
+    void fetchSharedActivity(shareId).then((shared) => {
+      if (!shared) {
+        setErrorMsg("Data rute yang dibagikan tidak ditemukan.");
+        return;
+      }
+      setActivity(shared.activity_data);
+      setActivityType(shared.activity_type);
+      setCustomTitle(shared.title);
+      setMoodTag(shared.mood_tag);
+      setTheme(shared.theme);
+      setAspectRatio(shared.aspect_ratio);
+      setMilestoneIntervalKm(shared.milestone_interval);
+      setAvatarConfig(shared.avatar_config);
+      setShowAvatar(true);
+      setCurrentKm(0);
+      setIsPlaying(true);
+    });
+  }, []);
 
   // Loop animasi pergerakan avatar sepanjang rute
   useEffect(() => {
@@ -144,6 +179,7 @@ export function App() {
 
   const processFile = async (file: File) => {
     setErrorMsg(null);
+    setShareUrl(null);
     if (!file.name.toLowerCase().endsWith(".gpx")) {
       setErrorMsg("Mohon unggah file dengan format .gpx");
       return;
@@ -181,6 +217,7 @@ export function App() {
 
   const handleLoadSample = () => {
     setErrorMsg(null);
+    setShareUrl(null);
     const parsed = parseGpxFile(SAMPLE_GPX, "run");
     setActivity(parsed);
     setActivityType("run");
@@ -211,6 +248,37 @@ export function App() {
     }
   };
 
+  const handleShareLink = async () => {
+    if (!cardRef.current) return;
+    setIsPlaying(false);
+    setIsSharing(true);
+    setErrorMsg(null);
+
+    try {
+      const url = await createShareableLink({
+        cardElement: cardRef.current,
+        activity,
+        activityType,
+        title: customTitle,
+        moodTag,
+        theme,
+        aspectRatio,
+        milestoneInterval: milestoneIntervalKm,
+        avatarConfig,
+      });
+      setShareUrl(url);
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : "Gagal membuat link share."
+      );
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-zinc-100/80 text-zinc-900">
       {/* Top Navbar */}
@@ -228,282 +296,365 @@ export function App() {
             </span>
           </div>
 
-          <Button
-            onClick={() => void handleExportPng()}
-            disabled={isExporting}
-            size="sm"
-          >
-            <Download className="mr-1.5 h-4 w-4" />
-            {isExporting ? "Menyimpan..." : "Download PNG"}
-          </Button>
+          <div className="flex items-center gap-2">
+            {isViewerMode ? (
+              <Button
+                size="sm"
+                onClick={() => {
+                  window.history.replaceState({}, "", "/");
+                  setIsViewerMode(false);
+                }}
+              >
+                Buat Peta Kamu Sendiri
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleShareLink()}
+                  disabled={isSharing}
+                >
+                  <Share2 className="mr-1.5 h-4 w-4" />
+                  {isSharing ? "Membuat Link..." : "Bagikan Link"}
+                </Button>
+                <Button
+                  onClick={() => void handleExportPng()}
+                  disabled={isExporting}
+                  size="sm"
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  {isExporting ? "Menyimpan..." : "Download PNG"}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
+      {/* Banner Salin Link Share */}
+      {shareUrl && (
+        <div className="border-b border-orange-200 bg-orange-50 px-4 py-2.5">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-orange-900">
+              Link siap dibagikan (muncul preview gambar & animasi avatar):{" "}
+              <span className="font-mono font-bold underline">{shareUrl}</span>
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 bg-white text-xs"
+              onClick={() => {
+                void navigator.clipboard.writeText(shareUrl);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2500);
+              }}
+            >
+              {copied ? (
+                <>
+                  <Check className="mr-1 h-3.5 w-3.5 text-emerald-600" />
+                  Tersalin!
+                </>
+              ) : (
+                <>
+                  <Copy className="mr-1 h-3.5 w-3.5" />
+                  Salin Link
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:grid-cols-12">
-        {/* Panel Kiri: Tabs Rute & Kustom Avatar */}
-        <div className="lg:col-span-5">
-          <Tabs defaultValue="route" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="route">
-                <MapPin className="mr-1.5 h-4 w-4" />
-                Rute & Peta 3D
-              </TabsTrigger>
-              <TabsTrigger value="avatar">
-                <UserRound className="mr-1.5 h-4 w-4" />
-                Kustom Avatar
-              </TabsTrigger>
-            </TabsList>
+        {/* Panel Kiri: Tabs Rute & Kustom Avatar (disembunyikan saat Viewer Mode) */}
+        {!isViewerMode && (
+          <div className="lg:col-span-5">
+            <Tabs defaultValue="route" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="route">
+                  <MapPin className="mr-1.5 h-4 w-4" />
+                  Rute & Peta 3D
+                </TabsTrigger>
+                <TabsTrigger value="avatar">
+                  <UserRound className="mr-1.5 h-4 w-4" />
+                  Kustom Avatar
+                </TabsTrigger>
+              </TabsList>
 
-            {/* Tab 1: Upload & Gaya Kartu */}
-            <TabsContent value="route" className="mt-4 space-y-5">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">1. Upload Rute (.GPX)</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50/70 px-4 py-5 text-center transition hover:border-zinc-400 hover:bg-zinc-100/70"
-                  >
-                    <Upload className="mb-2 h-6 w-6 text-zinc-500" />
-                    <p className="text-sm font-medium">
-                      Klik atau seret file <span className="font-bold">.gpx</span> ke sini
-                    </p>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      Ekspor dari Strava, Garmin Connect, atau Apple Health
-                    </p>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".gpx"
-                      onChange={handleFileChange}
-                      className="hidden"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-zinc-500">
-                      Ingin tes rute 5K?
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={handleLoadSample}
+              {/* Tab 1: Upload & Gaya Kartu */}
+              <TabsContent value="route" className="mt-4 space-y-5">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">
+                      1. Upload Rute (.GPX)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={handleDrop}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50/70 px-4 py-5 text-center transition hover:border-zinc-400 hover:bg-zinc-100/70"
                     >
-                      <Sparkles className="mr-1 h-3.5 w-3.5" />
-                      Putar Rute Contoh 5.3K
-                    </Button>
-                  </div>
+                      <Upload className="mb-2 h-6 w-6 text-zinc-500" />
+                      <p className="text-sm font-medium">
+                        Klik atau seret file{" "}
+                        <span className="font-bold">.gpx</span> ke sini
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        Ekspor dari Strava, Garmin Connect, atau Apple Health
+                      </p>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".gpx"
+                        onChange={handleFileChange}
+                        className="hidden"
+                      />
+                    </div>
 
-                  {errorMsg && (
-                    <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
-                      {errorMsg}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">2. Detail & Gaya Peta 3D</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Jenis Olahraga */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Jenis Aktivitas</Label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-500">
+                        Ingin tes rute 5K?
+                      </span>
                       <Button
                         type="button"
-                        variant={activityType === "run" ? "default" : "outline"}
+                        variant="ghost"
                         size="sm"
-                        onClick={() => setActivityType("run")}
+                        className="h-7 text-xs"
+                        onClick={handleLoadSample}
                       >
-                        <Footprints className="mr-1.5 h-4 w-4" />
-                        Lari (Pace)
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={activityType === "ride" ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setActivityType("ride")}
-                      >
-                        <Bike className="mr-1.5 h-4 w-4" />
-                        Sepeda (Speed)
+                        <Sparkles className="mr-1 h-3.5 w-3.5" />
+                        Putar Rute Contoh 5.3K
                       </Button>
                     </div>
-                  </div>
 
-                  {/* Tema Peta Realistis */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Tampilan Peta</Label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {THEME_LABELS.map((t) => (
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-2.5">
+                      <span className="text-xs text-zinc-500">
+                        Unduh file GPX uji:
+                      </span>
+                      <div className="flex gap-1.5">
                         <Button
-                          key={t.id}
                           type="button"
-                          variant={theme === t.id ? "default" : "outline"}
+                          variant="outline"
                           size="sm"
-                          onClick={() => setTheme(t.id)}
+                          className="h-7 text-xs"
+                          onClick={() => downloadSampleGpx("run")}
                         >
-                          {t.label}
+                          Lari 7.6K (.gpx)
                         </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Interval Milestone Gerakan Avatar */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">
-                      Selebrasi Avatar Setiap Kelipatan
-                    </Label>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {[1, 2, 5, 10].map((km) => (
                         <Button
-                          key={km}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => downloadSampleGpx("ride")}
+                        >
+                          Sepeda 12.3K (.gpx)
+                        </Button>
+                      </div>
+                    </div>
+
+                    {errorMsg && (
+                      <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+                        {errorMsg}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">
+                      2. Detail & Gaya Peta 3D
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Jenis Olahraga */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Jenis Aktivitas</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          variant={activityType === "run" ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setActivityType("run")}
+                        >
+                          <Footprints className="mr-1.5 h-4 w-4" />
+                          Lari (Pace)
+                        </Button>
+                        <Button
                           type="button"
                           variant={
-                            milestoneIntervalKm === km ? "default" : "outline"
+                            activityType === "ride" ? "default" : "outline"
                           }
                           size="sm"
-                          className="h-8 text-xs"
-                          onClick={() => setMilestoneIntervalKm(km)}
+                          onClick={() => setActivityType("ride")}
                         >
-                          {km} KM
+                          <Bike className="mr-1.5 h-4 w-4" />
+                          Sepeda (Speed)
                         </Button>
-                      ))}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Judul Aktivitas */}
-                  <div className="space-y-1.5">
-                    <Label htmlFor="activity-title" className="text-xs">
-                      Judul Aktivitas
-                    </Label>
-                    <Input
-                      id="activity-title"
-                      value={customTitle}
-                      onChange={(e) => setCustomTitle(e.target.value)}
-                      placeholder="Contoh: Lari Pagi Sudirman"
-                    />
-                  </div>
+                    {/* Tema Peta Realistis */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Tampilan Peta</Label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {THEME_LABELS.map((t) => (
+                          <Button
+                            key={t.id}
+                            type="button"
+                            variant={theme === t.id ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setTheme(t.id)}
+                          >
+                            {t.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
 
-                  {/* Stiker Mood */}
-                  <div className="space-y-1.5">
-                    <Label htmlFor="mood-tag" className="text-xs">
-                      Label Mood / Konteks
-                    </Label>
-                    <Input
-                      id="mood-tag"
-                      value={moodTag}
-                      onChange={(e) => setMoodTag(e.target.value)}
-                      placeholder="Kosongkan jika tidak perlu"
-                    />
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {MOOD_PRESETS.map((preset) => (
-                        <button
-                          key={preset}
+                    {/* Interval Milestone Gerakan Avatar */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">
+                        Selebrasi Avatar Setiap Kelipatan
+                      </Label>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {[1, 2, 5, 10].map((km) => (
+                          <Button
+                            key={km}
+                            type="button"
+                            variant={
+                              milestoneIntervalKm === km ? "default" : "outline"
+                            }
+                            size="sm"
+                            className="h-8 text-xs"
+                            onClick={() => setMilestoneIntervalKm(km)}
+                          >
+                            {km} KM
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Judul Aktivitas */}
+                    <div className="space-y-1.5">
+                      <Label htmlFor="activity-title" className="text-xs">
+                        Judul Aktivitas
+                      </Label>
+                      <Input
+                        id="activity-title"
+                        value={customTitle}
+                        onChange={(e) => setCustomTitle(e.target.value)}
+                        placeholder="Contoh: Lari Pagi Sudirman"
+                      />
+                    </div>
+
+                    {/* Stiker Mood */}
+                    <div className="space-y-1.5">
+                      <Label htmlFor="mood-tag" className="text-xs">
+                        Label Mood / Konteks
+                      </Label>
+                      <Input
+                        id="mood-tag"
+                        value={moodTag}
+                        onChange={(e) => setMoodTag(e.target.value)}
+                        placeholder="Kosongkan jika tidak perlu"
+                      />
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {MOOD_PRESETS.map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setMoodTag(preset)}
+                            className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-0.5 text-[11px] text-zinc-600 transition hover:bg-zinc-200/70"
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Rasio Gambar */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Ukuran Export</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
                           type="button"
-                          onClick={() => setMoodTag(preset)}
-                          className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-0.5 text-[11px] text-zinc-600 transition hover:bg-zinc-200/70"
+                          variant={
+                            aspectRatio === "square" ? "default" : "outline"
+                          }
+                          size="sm"
+                          onClick={() => setAspectRatio("square")}
                         >
-                          {preset}
-                        </button>
-                      ))}
+                          1:1 (Feed / Post)
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={
+                            aspectRatio === "story" ? "default" : "outline"
+                          }
+                          size="sm"
+                          onClick={() => setAspectRatio("story")}
+                        >
+                          9:16 (IG Story / TikTok)
+                        </Button>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Rasio Gambar */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Ukuran Export</Label>
-                    <div className="grid grid-cols-2 gap-2">
+                    {/* Toggle Avatar */}
+                    <div className="flex items-center justify-between pt-1">
+                      <Label className="text-xs">Avatar Aktif di Peta</Label>
                       <Button
                         type="button"
-                        variant={aspectRatio === "square" ? "default" : "outline"}
                         size="sm"
-                        onClick={() => setAspectRatio("square")}
+                        variant={showAvatar ? "default" : "outline"}
+                        className="h-7 text-xs"
+                        onClick={() => setShowAvatar((prev) => !prev)}
                       >
-                        1:1 (Feed / Post)
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={aspectRatio === "story" ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setAspectRatio("story")}
-                      >
-                        9:16 (IG Story / TikTok)
+                        {showAvatar ? "Aktif" : "Sembunyikan"}
                       </Button>
                     </div>
-                  </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
 
-                  {/* Toggle Avatar */}
-                  <div className="flex items-center justify-between pt-1">
-                    <Label className="text-xs">Avatar Aktif di Peta</Label>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={showAvatar ? "default" : "outline"}
-                      className="h-7 text-xs"
-                      onClick={() => setShowAvatar((prev) => !prev)}
-                    >
-                      {showAvatar ? "Aktif" : "Sembunyikan"}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            {/* Tambahkan di bawah area drag-and-drop upload GPX: */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-              <span className="text-xs text-zinc-500">Unduh file GPX uji:</span>
-              <div className="flex gap-1.5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => downloadSampleGpx("run")}
-                >
-                  Lari 7.6K (.gpx)
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => downloadSampleGpx("ride")}
-                >
-                  Sepeda 12.3K (.gpx)
-                </Button>
-              </div>
-            </div>
-
-            {/* Tab 2: Kustom Avatar */}
-            <TabsContent value="avatar" className="mt-4">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">
-                    Dandani Karaktermu
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <AvatarCustomizer
-                    config={avatarConfig}
-                    onChange={setAvatarConfig}
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </div>
+              {/* Tab 2: Kustom Avatar */}
+              <TabsContent value="avatar" className="mt-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">
+                      Dandani Karaktermu
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <AvatarCustomizer
+                      config={avatarConfig}
+                      onChange={setAvatarConfig}
+                    />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </div>
+        )}
 
         {/* Panel Kanan: Live Preview + Route Player */}
-        <div className="flex flex-col items-center justify-start lg:col-span-7">
+        <div
+          className={`flex flex-col items-center justify-start ${
+            isViewerMode ? "lg:col-span-12" : "lg:col-span-7"
+          }`}
+        >
           <div className="sticky top-6 flex w-full flex-col items-center">
+            {isViewerMode && errorMsg && (
+              <p className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-xs font-medium text-red-600">
+                {errorMsg}
+              </p>
+            )}
+
             <ShareCardPreview
               ref={cardRef}
               activity={activity}
